@@ -1,0 +1,3 @@
+Convert the following math OCR text into a clean, valid LaTeX math expression or equation. Return only the LaTeX code without markdown formatting or code blocks.
+
+OCR Text: <<OCR_TEXT>>
