@@ -9,6 +9,7 @@ import logging
 from PIL import Image
 import re
 import numpy as np
+import requests
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,6 @@ try:
     _have_openai = True
 except Exception:
     _have_openai = False
-    import requests
 
 from utils.image_utils import to_bytes
 
@@ -146,67 +146,116 @@ def _extract_math_from_text(ocr_text: str) -> str:
     return best
 
 
-def _call_gemini_api(prompt: str, api_key: str, model: str = "models/text-bison-001") -> str:
-    """Call Google Generative Models REST endpoint (Gemini/PaLM) with an API key.
+def _call_gemini_api(prompt: str, api_key: str, model: str = "gemini-3.6-flash", image_bytes: bytes = None) -> str:
+    """Call Google Gemini REST endpoint with support for vision and text prompts."""
+    import base64
+    candidate_models = [model, "gemini-3.6-flash", "gemini-2.0-flash", "gemini-1.5-flash", "gemini-2.5-flash"]
+    
+    parts = []
+    if image_bytes:
+        b64 = base64.b64encode(image_bytes).decode('utf-8')
+        parts.append({"inline_data": {"mime_type": "image/png", "data": b64}})
+    parts.append({"text": prompt})
+    
+    body = {
+        "contents": [{"parts": parts}],
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 512}
+    }
+    
+    for m in candidate_models:
+        try:
+            m_clean = m.replace("models/", "")
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{m_clean}:generateContent?key={api_key}"
+            headers = {"Content-Type": "application/json"}
+            resp = requests.post(url, headers=headers, json=body, timeout=20)
+            if resp.status_code == 200:
+                j = resp.json()
+                if "candidates" in j and j["candidates"]:
+                    text = j["candidates"][0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                    text = re.sub(r"^```(?:latex)?", "", text.strip(), flags=re.IGNORECASE)
+                    text = re.sub(r"```$", "", text.strip()).strip()
+                    if text.startswith("$") and text.endswith("$"):
+                        text = text[1:-1].strip()
+                    return text
+        except Exception as e:
+            logger.exception("Gemini model %s call failed: %s", m, e)
+            continue
+            
+    return ""
 
-    Note: `api_key` should be provided through environment variables. This helper
-    uses the `generativelanguage` endpoint and is written to avoid logging the key.
-    """
+
+def _call_groq_api(prompt: str, api_key: str, model: str = "openai/gpt-oss-120b") -> str:
+    """Call Groq AI API endpoint for fast LaTeX conversion."""
     try:
-        url = f"https://generativelanguage.googleapis.com/v1beta2/{model}:generate?key={api_key}"
-        headers = {"Content-Type": "application/json"}
-        body = {
-            "prompt": {"text": prompt},
-            "temperature": 0.0,
-            "maxOutputTokens": 512
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
         }
-        resp = requests.post(url, headers=headers, json=body, timeout=20)
-        resp.raise_for_status()
-        j = resp.json()
-        # Response shape: {'candidates': [{'output': '...'}], ...}
-        out = ""
-        if isinstance(j, dict):
-            # try common fields
-            if "candidates" in j and len(j["candidates"]) > 0:
-                out = j["candidates"][0].get("output", "")
-            elif "output" in j:
-                out = j.get("output", "")
-        return out
+        body = {
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
+            "temperature": 0.0,
+            "max_tokens": 512
+        }
+        resp = requests.post(url, headers=headers, json=body, timeout=15)
+        if resp.status_code == 200:
+            j = resp.json()
+            if "choices" in j and j["choices"]:
+                text = j["choices"][0]["message"]["content"].strip()
+                text = re.sub(r"^```(?:latex)?", "", text.strip(), flags=re.IGNORECASE)
+                text = re.sub(r"```$", "", text.strip()).strip()
+                if text.startswith("\\(") and text.endswith("\\)"):
+                    text = text[2:-2].strip()
+                elif text.startswith("$") and text.endswith("$"):
+                    text = text[1:-1].strip()
+                return text
     except Exception as e:
-        logger.exception("Gemini API call failed: %s", e)
-        return ""
+        logger.exception("Groq API call failed: %s", e)
+    return ""
 
 
-def llm_convert_to_latex(ocr_text: str, image=None, model="gpt-4o-mini") -> str:
-    """Convert OCR output into clean LaTeX using available LLM providers.
-
-    Order of preference:
-    1. Google Gemini (via `GEMINI_API_KEY` env var)
-    2. OpenAI (via `OPENAI_API_KEY`)
-    3. Local heuristic cleaning
-    """
+def llm_convert_to_latex(ocr_text: str, image=None, model="gemini-3.6-flash") -> str:
+    """Convert OCR output into clean LaTeX using available LLM providers (Gemini, Groq, OpenAI)."""
     cleaned = _clean_ocr_text(ocr_text)
+    prompt_file = os.path.join(os.path.dirname(__file__), "prompts", "latex_prompt.txt")
 
-    # Try Google Gemini / PaLM if provided
+    # Try Google Gemini if provided
     gemini_key = os.getenv("GEMINI_API_KEY")
     if gemini_key:
         try:
-            prompt = open("../prompts/latex_prompt.txt").read().replace("<<OCR_TEXT>>", cleaned)
-            out = _call_gemini_api(prompt, gemini_key, model="models/text-bison-001")
+            if image:
+                prompt = "Extract the math equation or function from this image into a clean LaTeX expression. Return ONLY raw LaTeX without markdown code block syntax."
+            elif os.path.exists(prompt_file):
+                prompt = open(prompt_file).read().replace("<<OCR_TEXT>>", cleaned)
+            else:
+                prompt = f"Convert the following math OCR text into a clean LaTeX math expression:\n{cleaned}"
+                
+            out = _call_gemini_api(prompt, gemini_key, model=model, image_bytes=image)
             if out:
                 return out.strip()
         except Exception:
             logger.exception("Gemini conversion attempt failed")
 
+    # Try Groq AI if provided
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key and cleaned:
+        try:
+            prompt = f"Convert the following math OCR text into clean LaTeX. Return ONLY the raw LaTeX string without markdown wrapper or explanation:\n{cleaned}"
+            out = _call_groq_api(prompt, groq_key)
+            if out:
+                return out.strip()
+        except Exception:
+            logger.exception("Groq conversion attempt failed")
+
     # Next try OpenAI if available
     api_key = os.getenv("OPENAI_API_KEY")
-    if api_key and _have_openai:
+    if api_key and _have_openai and os.path.exists(prompt_file):
         try:
             openai.api_key = api_key
-            prompt = open("../prompts/latex_prompt.txt").read()
-            prompt = prompt.replace("<<OCR_TEXT>>", cleaned)
+            prompt = open(prompt_file).read().replace("<<OCR_TEXT>>", cleaned)
             resp = openai.ChatCompletion.create(
-                model=model,
+                model="gpt-4o-mini",
                 messages=[{"role":"user","content":prompt}],
                 temperature=0.0,
                 max_tokens=800,
@@ -216,5 +265,4 @@ def llm_convert_to_latex(ocr_text: str, image=None, model="gpt-4o-mini") -> str:
         except Exception as e:
             logger.exception("LLM LaTeX conversion (OpenAI) failed: %s", e)
 
-    # Fallback to cleaned text
     return cleaned

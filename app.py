@@ -293,9 +293,11 @@ def main():
         # Sidebar Status Footer
         st.sidebar.markdown("---")
         has_gemini = bool(os.getenv("GEMINI_API_KEY"))
+        has_groq = bool(os.getenv("GROQ_API_KEY"))
         has_openai = bool(os.getenv("OPENAI_API_KEY"))
         st.sidebar.markdown(f"**LLM API Status:**")
         st.sidebar.markdown(f"- GEMINI_API_KEY: {'✅ Active' if has_gemini else '❌ Not Set'}")
+        st.sidebar.markdown(f"- GROQ_API_KEY: {'✅ Active' if has_groq else '❌ Not Set'}")
         st.sidebar.markdown(f"- OPENAI_API_KEY: {'✅ Active' if has_openai else '❌ Not Set'}")
         return
 
@@ -395,9 +397,11 @@ def main():
     # Sidebar Status Footer
     st.sidebar.markdown("---")
     has_gemini = bool(os.getenv("GEMINI_API_KEY"))
+    has_groq = bool(os.getenv("GROQ_API_KEY"))
     has_openai = bool(os.getenv("OPENAI_API_KEY"))
     st.sidebar.markdown(f"**LLM API Status:**")
     st.sidebar.markdown(f"- GEMINI_API_KEY: {'✅ Active' if has_gemini else '❌ Not Set'}")
+    st.sidebar.markdown(f"- GROQ_API_KEY: {'✅ Active' if has_groq else '❌ Not Set'}")
     st.sidebar.markdown(f"- OPENAI_API_KEY: {'✅ Active' if has_openai else '❌ Not Set'}")
 
 if __name__ == '__main__':
