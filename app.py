@@ -260,8 +260,8 @@ def main():
     cam = st.sidebar.camera_input("Capture from Camera")
     
     st.sidebar.markdown("---")
-    st.sidebar.markdown("### ⚙️ Engine Options")
-    use_llm = st.sidebar.checkbox("Enable LLM LaTeX Conversion", value=False, help="Requires OPENAI_API_KEY or GEMINI_API_KEY environment variable")
+    has_llm = bool(get_api_key("GEMINI_API_KEY") or get_api_key("GROQ_API_KEY") or get_api_key("OPENAI_API_KEY"))
+    use_llm = st.sidebar.checkbox("Enable LLM LaTeX Conversion", value=has_llm, help="Uses AI Vision / LLM to accurately convert complex images to LaTeX")
     
     # Check sample images
     sample_dir = "samples" if os.path.exists("samples") else "."
