@@ -6,6 +6,7 @@ import os
 import logging
 
 from utils.image_utils import preprocess_for_ocr, to_bytes
+from utils.env_utils import get_api_key
 from vision.ocr import OCREngine, llm_convert_to_latex
 from solver.equation_solver import parse_latex_to_sympy, solve_equation, generate_steps
 from checker.mistake_checker import detect_mistakes
@@ -292,9 +293,9 @@ def main():
         
         # Sidebar Status Footer
         st.sidebar.markdown("---")
-        has_gemini = bool(os.getenv("GEMINI_API_KEY"))
-        has_groq = bool(os.getenv("GROQ_API_KEY"))
-        has_openai = bool(os.getenv("OPENAI_API_KEY"))
+        has_gemini = bool(get_api_key("GEMINI_API_KEY"))
+        has_groq = bool(get_api_key("GROQ_API_KEY"))
+        has_openai = bool(get_api_key("OPENAI_API_KEY"))
         st.sidebar.markdown(f"**LLM API Status:**")
         st.sidebar.markdown(f"- GEMINI_API_KEY: {'✅ Active' if has_gemini else '❌ Not Set'}")
         st.sidebar.markdown(f"- GROQ_API_KEY: {'✅ Active' if has_groq else '❌ Not Set'}")
@@ -329,7 +330,7 @@ def main():
         latex = None
         if use_llm:
             with st.spinner("Converting to LaTeX via LLM..."):
-                latex = llm_convert_to_latex(math_expr, image=to_bytes(pre))
+                latex = llm_convert_to_latex(raw_text, image=to_bytes(pre))
         else:
             latex = math_expr.strip()
 
@@ -340,65 +341,66 @@ def main():
             st.code(latex, language="latex")
 
         # Solve via SymPy
+        sym = None
         try:
             sym = parse_latex_to_sympy(latex)
         except Exception as e:
-            st.error(f"⚠️ Failed to parse expression into SymPy: {e}")
+            st.warning(f"⚠️ Could not parse formula into a 1-variable SymPy algebraic equation: {e}")
+            st.info("ℹ️ The formula/function above is rendered in LaTeX. Automatic root-solving applies to standard single-variable equations (e.g. 2x + 5 = 15).")
+
+        if sym is not None:
+            with st.spinner("Solving equation..."):
+                result = solve_equation(sym)
+                steps = generate_steps(sym)
+                mistakes = detect_mistakes(latex, sym)
+
+            # Final Answer Box
+            sols = result.get("solutions")
+            st.markdown("<div style='background:rgba(99, 102, 241, 0.15); border:1px solid #6366F1; border-radius:10px; padding:16px; margin:16px 0;'>", unsafe_allow_html=True)
+            st.markdown("### 🏆 Final Answer")
+            if sols is None or len(sols) == 0:
+                st.warning("No explicit symbolic solution found.")
+            else:
+                st.markdown(f"**Root Solution(s):** `{sols}`")
+                for sol in sols:
+                    try:
+                        st.latex(f"x = {sol}")
+                    except Exception:
+                        st.write(sol)
             st.markdown("</div>", unsafe_allow_html=True)
-            return
 
-        with st.spinner("Solving equation..."):
-            result = solve_equation(sym)
-            steps = generate_steps(sym)
-            mistakes = detect_mistakes(latex, sym)
-
-        # Final Answer Box
-        sols = result.get("solutions")
-        st.markdown("<div style='background:rgba(99, 102, 241, 0.15); border:1px solid #6366F1; border-radius:10px; padding:16px; margin:16px 0;'>", unsafe_allow_html=True)
-        st.markdown("### 🏆 Final Answer")
-        if sols is None or len(sols) == 0:
-            st.warning("No explicit symbolic solution found.")
-        else:
-            st.markdown(f"**Root Solution(s):** `{sols}`")
-            for sol in sols:
+            # Step-by-step Solution Cards
+            st.markdown("### 📝 Step-by-Step Breakdown")
+            for i, (title, content) in enumerate(steps, start=1):
+                st.markdown(
+                    f"""
+                    <div class="step-box">
+                        <strong>Step {i}: {title}</strong>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
                 try:
-                    st.latex(f"x = {sol}")
+                    st.latex(content)
                 except Exception:
-                    st.write(sol)
-        st.markdown("</div>", unsafe_allow_html=True)
+                    st.write(content)
 
-        # Step-by-step Solution Cards
-        st.markdown("### 📝 Step-by-Step Breakdown")
-        for i, (title, content) in enumerate(steps, start=1):
-            st.markdown(
-                f"""
-                <div class="step-box">
-                    <strong>Step {i}: {title}</strong>
-                </div>
-                """,
-                unsafe_allow_html=True
-            )
-            try:
-                st.latex(content)
-            except Exception:
-                st.write(content)
-
-        # Mistake Checker Warnings
-        st.markdown("### 🔍 Mistake Analysis")
-        if mistakes:
-            st.error("Potential common errors flagged:")
-            for m in mistakes:
-                st.markdown(f"- ⚠️ {m}")
-        else:
-            st.success("✅ No obvious algebraic errors or inconsistencies detected.")
+            # Mistake Checker Warnings
+            st.markdown("### 🔍 Mistake Analysis")
+            if mistakes:
+                st.error("Potential common errors flagged:")
+                for m in mistakes:
+                    st.markdown(f"- ⚠️ {m}")
+            else:
+                st.success("✅ No obvious algebraic errors or inconsistencies detected.")
 
         st.markdown("</div>", unsafe_allow_html=True)
 
     # Sidebar Status Footer
     st.sidebar.markdown("---")
-    has_gemini = bool(os.getenv("GEMINI_API_KEY"))
-    has_groq = bool(os.getenv("GROQ_API_KEY"))
-    has_openai = bool(os.getenv("OPENAI_API_KEY"))
+    has_gemini = bool(get_api_key("GEMINI_API_KEY"))
+    has_groq = bool(get_api_key("GROQ_API_KEY"))
+    has_openai = bool(get_api_key("OPENAI_API_KEY"))
     st.sidebar.markdown(f"**LLM API Status:**")
     st.sidebar.markdown(f"- GEMINI_API_KEY: {'✅ Active' if has_gemini else '❌ Not Set'}")
     st.sidebar.markdown(f"- GROQ_API_KEY: {'✅ Active' if has_groq else '❌ Not Set'}")

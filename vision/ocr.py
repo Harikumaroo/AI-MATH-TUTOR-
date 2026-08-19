@@ -32,6 +32,7 @@ except Exception:
     _have_openai = False
 
 from utils.image_utils import to_bytes
+from utils.env_utils import get_api_key
 
 class OCREngine:
     def __init__(self, lang_list=["en"]):
@@ -206,7 +207,7 @@ def llm_convert_to_latex(ocr_text: str, image=None, model="gemini-3.6-flash") ->
     prompt_file = os.path.join(os.path.dirname(__file__), "..", "prompts", "latex_prompt.txt")
 
     # Try Google Gemini if provided
-    gemini_key = os.getenv("GEMINI_API_KEY")
+    gemini_key = get_api_key("GEMINI_API_KEY")
     if gemini_key:
         try:
             if image:
@@ -223,7 +224,7 @@ def llm_convert_to_latex(ocr_text: str, image=None, model="gemini-3.6-flash") ->
             logger.exception("Gemini conversion attempt failed")
 
     # Try Groq AI if provided
-    groq_key = os.getenv("GROQ_API_KEY")
+    groq_key = get_api_key("GROQ_API_KEY")
     if groq_key and cleaned:
         try:
             prompt = f"Convert the following math OCR text into clean LaTeX. Return ONLY the raw LaTeX string without markdown wrapper or explanation:\n{cleaned}"
@@ -234,7 +235,7 @@ def llm_convert_to_latex(ocr_text: str, image=None, model="gemini-3.6-flash") ->
             logger.exception("Groq conversion attempt failed")
 
     # Next try OpenAI if available
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = get_api_key("OPENAI_API_KEY")
     if api_key and _have_openai and os.path.exists(prompt_file):
         try:
             openai.api_key = api_key
