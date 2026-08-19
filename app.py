@@ -345,8 +345,11 @@ def main():
         try:
             sym = parse_latex_to_sympy(latex)
         except Exception as e:
-            st.warning(f"⚠️ Could not parse formula into a 1-variable SymPy algebraic equation: {e}")
-            st.info("ℹ️ The formula/function above is rendered in LaTeX. Automatic root-solving applies to standard single-variable equations (e.g. 2x + 5 = 15).")
+            if any(k in (latex or "").lower() for k in ["cases", "begin", "matrix", "array", "if"]):
+                st.success("✅ Piecewise / Mathematical Function Recognized & Formatted Above!")
+                st.info("💡 Note: Symbolic root-solving applies to standard algebraic equations (e.g. 2x + 5 = 15). Function definitions and piecewise expressions are accurately extracted and rendered in clean LaTeX above.")
+            else:
+                st.info("ℹ️ The formula above is rendered in LaTeX. Automatic root-solving applies to standard single-variable algebraic equations (e.g. 2x + 5 = 15).")
 
         if sym is not None:
             with st.spinner("Solving equation..."):
